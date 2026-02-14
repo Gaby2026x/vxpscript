@@ -1,6 +1,6 @@
 const app = {
     token: null,
-    charts: { human: null, bot: null },
+    charts: { human: null, bot: null, hourly: null },
     ws: null,
     wsReconnectAttempts: 0,
     wsMaxReconnectAttempts: 10,
@@ -122,6 +122,20 @@ const app = {
             exportClicksBtn: document.getElementById('export-clicks-btn'),
             bulkDeleteBtn: document.getElementById('bulk-delete-btn'),
             selectAllLinks: document.getElementById('select-all-links'),
+            // New feature elements
+            rateTodayHuman: document.getElementById('rate-today-human'),
+            rateTodayBot: document.getElementById('rate-today-bot'),
+            rateTodayTotal: document.getElementById('rate-today-total'),
+            rateWeekHuman: document.getElementById('rate-week-human'),
+            rateWeekBot: document.getElementById('rate-week-bot'),
+            rateWeekTotal: document.getElementById('rate-week-total'),
+            rateMonthHuman: document.getElementById('rate-month-human'),
+            rateMonthBot: document.getElementById('rate-month-bot'),
+            rateMonthTotal: document.getElementById('rate-month-total'),
+            hourlyChartCanvas: document.getElementById('hourlyChart'),
+            geoSummaryBody: document.getElementById('geo-summary-body'),
+            topLinksBody: document.getElementById('top-links-body'),
+            userSinceDisplay: document.getElementById('user-since-display'),
         };
     },
 
@@ -237,6 +251,7 @@ const app = {
                 if (button.classList.contains('analytics-btn')) this.showAnalyticsModal(id);
                 else if (button.classList.contains('delete-btn')) this.deleteLink(id);
                 else if (button.classList.contains('copy-btn')) this.copyToClipboard(url);
+                else if (button.classList.contains('toggle-status-btn')) this.toggleLinkStatus(id, button.dataset.active === 'true');
             });
             this.ui.linksTbody.addEventListener('change', (e) => {
                 if (e.target.classList.contains('link-select-cb')) {
@@ -375,6 +390,7 @@ const app = {
         if (this.ws) { this.ws.close(); this.ws = null; }
         if (this.charts.human) this.charts.human.destroy();
         if (this.charts.bot) this.charts.bot.destroy();
+        if (this.charts.hourly) this.charts.hourly.destroy();
         this.showAuth();
     },
 
@@ -514,7 +530,7 @@ const app = {
 
     async loadInitialData() {
         try {
-            const [links, domains, stats, shortLinks, shortLinkStats, templates, dashboardStats] = await Promise.all([
+            const [links, domains, stats, shortLinks, shortLinkStats, templates, dashboardStats, rateSummary, geoSummary, topLinks, hourlyStats, userProfile] = await Promise.all([
                 this.handleApiCall('/api/links'),
                 this.handleApiCall('/api/domains'),
                 this.handleApiCall('/api/stats/clicks-by-day?days=14'),
@@ -522,6 +538,11 @@ const app = {
                 this.handleApiCall('/api/short-links/stats'),
                 this.handleApiCall('/api/templates'),
                 this.handleApiCall('/api/stats/dashboard'),
+                this.handleApiCall('/api/stats/rate-summary').catch(() => null),
+                this.handleApiCall('/api/stats/geo-summary').catch(() => null),
+                this.handleApiCall('/api/stats/top-links?limit=10').catch(() => null),
+                this.handleApiCall('/api/stats/hourly?hours=24').catch(() => null),
+                this.handleApiCall('/api/me').catch(() => null),
             ]);
             this.links = links || [];
             this.domains = domains || [];
@@ -537,6 +558,11 @@ const app = {
             this.renderShortLinksTable();
             this.renderTemplatesTable();
             this.renderClickCharts(stats || []);
+            this.updateRateSummary(rateSummary);
+            this.renderGeoSummary(geoSummary);
+            this.renderTopLinks(topLinks);
+            this.renderHourlyChart(hourlyStats);
+            this.updateUserProfile(userProfile);
         } catch (err) {
             console.error("Failed to load initial data:", err);
         }
@@ -1069,6 +1095,7 @@ const app = {
         const expirationDate = new Date(link.expiresAt).toLocaleDateString();
         const shortId = link.id.substring(0, 8) + '...';
         const tagsDisplay = link.tags || '';
+        const isActive = link.isActive !== 0;
         tr.innerHTML = `
             <td data-label="Select">
                 <input type="checkbox" class="link-select-cb" data-id="${link.id}">
@@ -1088,6 +1115,11 @@ const app = {
             </td>
             <td data-label="Bot" class="text-right bot-clicks-cell">
                 ${link.botClicks || 0}
+            </td>
+            <td data-label="Status">
+                <button class="action-btn toggle-status-btn ${isActive ? 'status-active' : 'status-paused'}" data-id="${link.id}" data-active="${isActive}" title="${isActive ? 'Click to pause' : 'Click to resume'}">
+                    <span class="status-badge-pill ${isActive ? 'badge-success' : 'badge-warning'}">${isActive ? 'Active' : 'Paused'}</span>
+                </button>
             </td>
             <td data-label="Tags">
                 <span class="tag-badge" title="Click to edit tags">${tagsDisplay || '—'}</span>
@@ -1141,6 +1173,7 @@ const app = {
     },
 
     renderClickCharts(stats) {
+        if (typeof Chart === 'undefined') return;
         if (this.charts.human) this.charts.human.destroy();
         if (this.charts.bot) this.charts.bot.destroy();
         const labels = stats.map(s => new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
@@ -1484,6 +1517,132 @@ const app = {
             const link = this.links.find(l => l.id === linkId);
             if (link) link.tags = tags;
             this.showToast('success', 'Updated', 'Link tags updated.');
+        } catch (err) {
+            this.showToast('error', 'Error', err.message);
+        }
+    },
+
+    // ==================== NEW FEATURE METHODS ====================
+
+    updateRateSummary(data) {
+        if (!data) return;
+        if (this.ui.rateTodayHuman) this.ui.rateTodayHuman.textContent = (data.today?.human || 0).toLocaleString();
+        if (this.ui.rateTodayBot) this.ui.rateTodayBot.textContent = (data.today?.bot || 0).toLocaleString();
+        if (this.ui.rateTodayTotal) this.ui.rateTodayTotal.textContent = (data.today?.total || 0).toLocaleString();
+        if (this.ui.rateWeekHuman) this.ui.rateWeekHuman.textContent = (data.thisWeek?.human || 0).toLocaleString();
+        if (this.ui.rateWeekBot) this.ui.rateWeekBot.textContent = (data.thisWeek?.bot || 0).toLocaleString();
+        if (this.ui.rateWeekTotal) this.ui.rateWeekTotal.textContent = (data.thisWeek?.total || 0).toLocaleString();
+        if (this.ui.rateMonthHuman) this.ui.rateMonthHuman.textContent = (data.thisMonth?.human || 0).toLocaleString();
+        if (this.ui.rateMonthBot) this.ui.rateMonthBot.textContent = (data.thisMonth?.bot || 0).toLocaleString();
+        if (this.ui.rateMonthTotal) this.ui.rateMonthTotal.textContent = (data.thisMonth?.total || 0).toLocaleString();
+    },
+
+    renderGeoSummary(data) {
+        if (!this.ui.geoSummaryBody) return;
+        if (!data || data.length === 0) {
+            this.ui.geoSummaryBody.innerHTML = '<div class="empty-state-sm">No geographic data yet.</div>';
+            return;
+        }
+        let html = '<div class="geo-list">';
+        data.forEach((item, i) => {
+            html += `
+                <div class="geo-row">
+                    <span class="geo-rank">${i + 1}</span>
+                    <span class="geo-country">${item.country}</span>
+                    <div class="geo-bar-wrapper">
+                        <div class="geo-bar" style="width: ${item.percentage}%"></div>
+                    </div>
+                    <span class="geo-count">${item.count}</span>
+                    <span class="geo-pct">${item.percentage}%</span>
+                </div>`;
+        });
+        html += '</div>';
+        this.ui.geoSummaryBody.innerHTML = html;
+    },
+
+    renderTopLinks(data) {
+        if (!this.ui.topLinksBody) return;
+        if (!data || data.length === 0) {
+            this.ui.topLinksBody.innerHTML = '<div class="empty-state-sm">No link data yet.</div>';
+            return;
+        }
+        let html = '<div class="top-links-list">';
+        data.forEach((link, i) => {
+            const dest = link.destinationUrlDesktop || '—';
+            const shortDest = dest.length > 40 ? dest.substring(0, 40) + '...' : dest;
+            html += `
+                <div class="top-link-row">
+                    <span class="top-link-rank">#${i + 1}</span>
+                    <div class="top-link-info">
+                        <span class="top-link-url" title="${dest}">${shortDest}</span>
+                        <span class="top-link-meta">${(link.humanClicks || 0)} human · ${(link.botClicks || 0)} bot</span>
+                    </div>
+                    <span class="top-link-total">${(link.totalClicks || 0)}</span>
+                </div>`;
+        });
+        html += '</div>';
+        this.ui.topLinksBody.innerHTML = html;
+    },
+
+    renderHourlyChart(data) {
+        if (typeof Chart === 'undefined') return;
+        if (!this.ui.hourlyChartCanvas) return;
+        if (this.charts.hourly) this.charts.hourly.destroy();
+        if (!data || data.length === 0) return;
+        const labels = data.map(d => {
+            const h = d.hour || '';
+            try {
+                const dt = new Date(h);
+                return dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            } catch (e) { return h; }
+        });
+        const humanData = data.map(d => d.humanClicks || 0);
+        const botData = data.map(d => d.botClicks || 0);
+        this.charts.hourly = new Chart(this.ui.hourlyChartCanvas, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Human', data: humanData, backgroundColor: 'rgba(34, 197, 94, 0.6)', borderColor: '#22c55e', borderWidth: 1 },
+                    { label: 'Bot', data: botData, backgroundColor: 'rgba(245, 158, 11, 0.6)', borderColor: '#f59e0b', borderWidth: 1 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, stacked: true, ticks: { color: '#94a3b8', precision: 0 }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
+                    x: { stacked: true, ticks: { color: '#94a3b8', maxTicksLimit: 12 }, grid: { display: false } }
+                },
+                plugins: {
+                    legend: { display: true, labels: { color: '#94a3b8' } },
+                    tooltip: { backgroundColor: '#1e293b', titleColor: '#f1f5f9', bodyColor: '#94a3b8', borderColor: '#334155', borderWidth: 1, padding: 12, cornerRadius: 8 }
+                }
+            }
+        });
+    },
+
+    updateUserProfile(data) {
+        if (!data) return;
+        if (this.ui.usernameDisplay) this.ui.usernameDisplay.textContent = data.email || 'User';
+        if (this.ui.userAvatar) this.ui.userAvatar.textContent = (data.email || 'U').charAt(0).toUpperCase();
+        if (this.ui.userRoleDisplay) this.ui.userRoleDisplay.textContent = data.role === 'admin' ? 'Administrator' : 'User';
+        if (this.ui.userSinceDisplay && data.createdAt) {
+            this.ui.userSinceDisplay.textContent = 'Since ' + new Date(data.createdAt).toLocaleDateString();
+        }
+    },
+
+    async toggleLinkStatus(linkId, currentlyActive) {
+        const newStatus = !currentlyActive;
+        try {
+            await this.handleApiCall(`/api/links/${linkId}/status`, {
+                method: 'PATCH',
+                body: JSON.stringify({ active: newStatus })
+            });
+            const link = this.links.find(l => l.id === linkId);
+            if (link) link.isActive = newStatus ? 1 : 0;
+            this.renderLinksTable();
+            this.showToast('success', newStatus ? 'Link Resumed' : 'Link Paused', newStatus ? 'Link is now active.' : 'Link is now paused.');
         } catch (err) {
             this.showToast('error', 'Error', err.message);
         }

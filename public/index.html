@@ -228,6 +228,7 @@
                     <div class="user-info">
                         <span class="user-name" id="username-display">User</span>
                         <span class="user-role" id="user-role-display">User</span>
+                        <span class="user-since" id="user-since-display"></span>
                     </div>
                     <button id="logout-btn" class="btn-logout-icon" title="Logout">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -331,11 +332,39 @@
                     </div>
                 </div>
 
+                <!-- Rate Summary (Today / This Week / This Month) -->
+                <div class="rate-summary-grid">
+                    <div class="rate-card">
+                        <div class="rate-period">Today</div>
+                        <div class="rate-values">
+                            <div class="rate-item"><span class="rate-number" id="rate-today-human">0</span><span class="rate-label">Human</span></div>
+                            <div class="rate-item"><span class="rate-number rate-bot" id="rate-today-bot">0</span><span class="rate-label">Bot</span></div>
+                            <div class="rate-item"><span class="rate-number rate-total" id="rate-today-total">0</span><span class="rate-label">Total</span></div>
+                        </div>
+                    </div>
+                    <div class="rate-card">
+                        <div class="rate-period">This Week</div>
+                        <div class="rate-values">
+                            <div class="rate-item"><span class="rate-number" id="rate-week-human">0</span><span class="rate-label">Human</span></div>
+                            <div class="rate-item"><span class="rate-number rate-bot" id="rate-week-bot">0</span><span class="rate-label">Bot</span></div>
+                            <div class="rate-item"><span class="rate-number rate-total" id="rate-week-total">0</span><span class="rate-label">Total</span></div>
+                        </div>
+                    </div>
+                    <div class="rate-card">
+                        <div class="rate-period">This Month</div>
+                        <div class="rate-values">
+                            <div class="rate-item"><span class="rate-number" id="rate-month-human">0</span><span class="rate-label">Human</span></div>
+                            <div class="rate-item"><span class="rate-number rate-bot" id="rate-month-bot">0</span><span class="rate-label">Bot</span></div>
+                            <div class="rate-item"><span class="rate-number rate-total" id="rate-month-total">0</span><span class="rate-label">Total</span></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Charts -->
                 <div class="charts-grid">
                     <div class="card chart-card">
                         <div class="card-header">
-                            <h3><span class="chart-dot green"></span>Human Traffic</h3>
+                            <h3><span class="chart-dot green"></span>Human Traffic (14 Day)</h3>
                         </div>
                         <div class="card-body chart-wrapper">
                             <canvas id="humanClicksChart"></canvas>
@@ -343,10 +372,42 @@
                     </div>
                     <div class="card chart-card">
                         <div class="card-header">
-                            <h3><span class="chart-dot orange"></span>Bot Activity</h3>
+                            <h3><span class="chart-dot orange"></span>Bot Activity (14 Day)</h3>
                         </div>
                         <div class="card-body chart-wrapper">
                             <canvas id="botClicksChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hourly Breakdown Chart -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h3><span class="chart-dot blue"></span>Hourly Breakdown (Last 24h)</h3>
+                    </div>
+                    <div class="card-body chart-wrapper">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Geo & Top Links Row -->
+                <div class="insights-grid">
+                    <!-- Geographic Breakdown -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>🌍 Geographic Breakdown</h3>
+                        </div>
+                        <div class="card-body" id="geo-summary-body">
+                            <div class="empty-state-sm">Loading geographic data...</div>
+                        </div>
+                    </div>
+                    <!-- Top Performing Links -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>🏆 Top Performing Links</h3>
+                        </div>
+                        <div class="card-body" id="top-links-body">
+                            <div class="empty-state-sm">Loading top links...</div>
                         </div>
                     </div>
                 </div>
@@ -413,6 +474,7 @@
                                     <th>Destination</th>
                                     <th class="text-right">Human</th>
                                     <th class="text-right">Bot</th>
+                                    <th>Status</th>
                                     <th>Tags</th>
                                     <th>Expires</th>
                                     <th class="text-center">Action</th>
