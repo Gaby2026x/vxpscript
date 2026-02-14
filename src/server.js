@@ -292,6 +292,12 @@ app.get('/tr/v1/:id', async (req, res) => {
             return res.status(404).send('Link not found or expired');
         }
 
+        // 1b. Check if link is paused
+        if (link.isActive === 0) {
+            console.log(chalk.yellow(`[TRACKING] Link is paused: ${linkId}`));
+            return res.status(410).send('This link is currently paused');
+        }
+
         // 2. Initial Bot Detection (Server Side)
         const clientSignals = req.query.s ? { score: 0 } : {}; 
         const botResult = botDetector(req, clientSignals);
@@ -758,6 +764,71 @@ app.get('/api/stats/export', apiLimiter, authenticateToken, async (req, res) => 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ==================== USER PROFILE ENDPOINT ====================
+app.get('/api/me', authenticateToken, async (req, res) => {
+    try {
+        const db = await getDb();
+        const user = await db.get('SELECT id, username, role, createdAt FROM users WHERE id = ?', [req.user.id]);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        const linkCount = await db.get('SELECT COUNT(*) as count FROM links WHERE ownerId = ?', [req.user.id]);
+        const shortLinkCount = await db.get('SELECT COUNT(*) as count FROM short_links WHERE ownerId = ?', [req.user.id]);
+        res.json({
+            id: user.id,
+            email: user.username,
+            role: user.role,
+            createdAt: user.createdAt,
+            totalLinks: linkCount?.count || 0,
+            totalShortLinks: shortLinkCount?.count || 0
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== ADVANCED ANALYTICS ENDPOINTS ====================
+app.get('/api/stats/hourly', apiLimiter, authenticateToken, async (req, res) => {
+    try {
+        const hours = parseInt(req.query.hours) || 24;
+        const stats = await linkStore.getHourlyBreakdown(req.user.id, hours);
+        res.json(stats);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/stats/geo-summary', apiLimiter, authenticateToken, async (req, res) => {
+    try {
+        const geo = await linkStore.getGeoSummary(req.user.id);
+        res.json(geo);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/stats/top-links', apiLimiter, authenticateToken, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        const topLinks = await linkStore.getTopLinks(req.user.id, limit);
+        res.json(topLinks);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/stats/rate-summary', apiLimiter, authenticateToken, async (req, res) => {
+    try {
+        const summary = await linkStore.getClickRateSummary(req.user.id);
+        res.json(summary);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==================== LINK PAUSE / RESUME ====================
+app.patch('/api/links/:id/status', apiLimiter, authenticateToken, async (req, res) => {
+    try {
+        const { active } = req.body;
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({ error: 'The "active" field must be a boolean' });
+        }
+        const db = await getDb();
+        const link = await db.get('SELECT id FROM links WHERE id = ? AND ownerId = ?', [req.params.id, req.user.id]);
+        if (!link) return res.status(404).json({ error: 'Link not found or permission denied' });
+        await db.run('UPDATE links SET isActive = ? WHERE id = ?', [active ? 1 : 0, req.params.id]);
+        res.json({ success: true, active });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/domains', authenticateToken, async (req, res) => {
     try {
         const db = await getDb();
@@ -768,9 +839,13 @@ app.get('/api/domains', authenticateToken, async (req, res) => {
 
 app.post('/api/domains', authenticateToken, async (req, res) => {
     try {
+        const hostname = (req.body.hostname || '').trim().toLowerCase();
+        if (!hostname || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)) {
+            return res.status(400).json({ error: 'Invalid hostname. Please enter a valid domain (e.g., mysite.com)' });
+        }
         const db = await getDb();
-        const result = await db.run('INSERT INTO custom_domains (ownerId, hostname) VALUES (?, ?)', [req.user.id, req.body.hostname]);
-        res.json({ id: result.lastID, hostname: req.body.hostname });
+        const result = await db.run('INSERT INTO custom_domains (ownerId, hostname) VALUES (?, ?)', [req.user.id, hostname]);
+        res.json({ id: result.lastID, hostname });
     } catch(e) { res.status(400).json({ error: 'Domain already exists' }); }
 });
 
@@ -1029,10 +1104,33 @@ app.delete('/api/templates/:name', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/health', (req, res) => res.send('OK'));
+app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime(), timestamp: Date.now() }));
 app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../public', 'index.html')); });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
     console.log(chalk.green(`🚀 Server running on port ${PORT}`));
 });
+
+// ==================== GRACEFUL SHUTDOWN ====================
+function gracefulShutdown(signal) {
+    console.log(chalk.yellow(`\n[SHUTDOWN] ${signal} received. Closing server gracefully...`));
+    server.close(async () => {
+        console.log(chalk.yellow('[SHUTDOWN] HTTP server closed.'));
+        try {
+            const cache = require('./lib/cache');
+            await cache.quit();
+            console.log(chalk.yellow('[SHUTDOWN] Cache connections closed.'));
+        } catch (e) { /* ignore */ }
+        console.log(chalk.green('[SHUTDOWN] Shutdown complete.'));
+        process.exit(0);
+    });
+    // Force shutdown after 10 seconds if graceful fails
+    setTimeout(() => {
+        console.error(chalk.red('[SHUTDOWN] Forced shutdown after timeout.'));
+        process.exit(1);
+    }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

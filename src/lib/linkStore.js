@@ -318,6 +318,119 @@ const linkStore = {
             await db.run('ROLLBACK');
             throw error;
         }
+    },
+
+    /**
+     * Get hourly click breakdown for the last N hours
+     */
+    async getHourlyBreakdown(ownerId, hours = 24) {
+        const db = await getDb();
+        return db.all(`
+            SELECT 
+                strftime('%Y-%m-%d %H:00', timestamp) as hour,
+                SUM(CASE WHEN isBot = 0 THEN 1 ELSE 0 END) as humanClicks,
+                SUM(CASE WHEN isBot = 1 THEN 1 ELSE 0 END) as botClicks,
+                COUNT(*) as totalClicks
+            FROM clicks
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?)
+            AND timestamp >= datetime('now', '-' || ? || ' hours')
+            GROUP BY strftime('%Y-%m-%d %H:00', timestamp)
+            ORDER BY hour ASC
+        `, [ownerId, hours]);
+    },
+
+    /**
+     * Get geographic summary: clicks grouped by country with percentages
+     */
+    async getGeoSummary(ownerId) {
+        const db = await getDb();
+
+        const total = await db.get(`
+            SELECT COUNT(*) as count FROM clicks 
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?) AND isBot = 0
+        `, [ownerId]);
+
+        const countries = await db.all(`
+            SELECT 
+                country, 
+                COUNT(*) as count
+            FROM clicks
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?)
+            AND isBot = 0 AND country IS NOT NULL AND country != 'Unknown'
+            GROUP BY country
+            ORDER BY count DESC
+            LIMIT 20
+        `, [ownerId]);
+
+        const totalCount = total?.count || 0;
+        return countries.map(c => ({
+            country: c.country,
+            count: c.count,
+            percentage: totalCount > 0 ? parseFloat(((c.count / totalCount) * 100).toFixed(1)) : 0
+        }));
+    },
+
+    /**
+     * Get top performing links for a user
+     */
+    async getTopLinks(ownerId, limit = 10) {
+        const db = await getDb();
+        return db.all(`
+            SELECT 
+                l.id,
+                l.destinationUrlDesktop,
+                l.clicks as humanClicks,
+                l.botClicks,
+                (l.clicks + l.botClicks) as totalClicks,
+                l.tags,
+                l.notes,
+                l.createdAt,
+                l.expiresAt
+            FROM links l
+            WHERE l.ownerId = ?
+            ORDER BY l.clicks DESC
+            LIMIT ?
+        `, [ownerId, limit]);
+    },
+
+    /**
+     * Get click rate over time periods (today, this week, this month)
+     */
+    async getClickRateSummary(ownerId) {
+        const db = await getDb();
+
+        const today = await db.get(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN isBot = 0 THEN 1 ELSE 0 END), 0) as human,
+                COALESCE(SUM(CASE WHEN isBot = 1 THEN 1 ELSE 0 END), 0) as bot
+            FROM clicks 
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?)
+            AND timestamp >= date('now', 'start of day')
+        `, [ownerId]);
+
+        const thisWeek = await db.get(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN isBot = 0 THEN 1 ELSE 0 END), 0) as human,
+                COALESCE(SUM(CASE WHEN isBot = 1 THEN 1 ELSE 0 END), 0) as bot
+            FROM clicks 
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?)
+            AND timestamp >= date('now', '-7 days')
+        `, [ownerId]);
+
+        const thisMonth = await db.get(`
+            SELECT 
+                COALESCE(SUM(CASE WHEN isBot = 0 THEN 1 ELSE 0 END), 0) as human,
+                COALESCE(SUM(CASE WHEN isBot = 1 THEN 1 ELSE 0 END), 0) as bot
+            FROM clicks 
+            WHERE linkId IN (SELECT id FROM links WHERE ownerId = ?)
+            AND timestamp >= date('now', 'start of month')
+        `, [ownerId]);
+
+        return {
+            today:     { human: today.human, bot: today.bot, total: today.human + today.bot },
+            thisWeek:  { human: thisWeek.human, bot: thisWeek.bot, total: thisWeek.human + thisWeek.bot },
+            thisMonth: { human: thisMonth.human, bot: thisMonth.bot, total: thisMonth.human + thisMonth.bot }
+        };
     }
 };
 
