@@ -765,7 +765,7 @@ app.get('/api/stats/export', apiLimiter, authenticateToken, async (req, res) => 
 });
 
 // ==================== USER PROFILE ENDPOINT ====================
-app.get('/api/me', authenticateToken, async (req, res) => {
+app.get('/api/me', apiLimiter, authenticateToken, async (req, res) => {
     try {
         const db = await getDb();
         const user = await db.get('SELECT id, username, role, createdAt FROM users WHERE id = ?', [req.user.id]);
@@ -837,7 +837,7 @@ app.get('/api/domains', authenticateToken, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/domains', authenticateToken, async (req, res) => {
+app.post('/api/domains', apiLimiter, authenticateToken, async (req, res) => {
     try {
         const hostname = (req.body.hostname || '').trim().toLowerCase();
         if (!hostname || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)) {
