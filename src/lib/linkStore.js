@@ -426,10 +426,12 @@ const linkStore = {
             AND timestamp >= date('now', 'start of month')
         `, [ownerId]);
 
+        const toSummary = (row) => ({ human: row.human, bot: row.bot, total: row.human + row.bot });
+
         return {
-            today:     { human: today.human, bot: today.bot, total: today.human + today.bot },
-            thisWeek:  { human: thisWeek.human, bot: thisWeek.bot, total: thisWeek.human + thisWeek.bot },
-            thisMonth: { human: thisMonth.human, bot: thisMonth.bot, total: thisMonth.human + thisMonth.bot }
+            today:     toSummary(today),
+            thisWeek:  toSummary(thisWeek),
+            thisMonth: toSummary(thisMonth)
         };
     }
 };
