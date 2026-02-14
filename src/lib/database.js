@@ -50,6 +50,7 @@ async function initializeDatabase() {
                 templateId INTEGER,
                 clicks INTEGER DEFAULT 0,
                 botClicks INTEGER DEFAULT 0,
+                isActive INTEGER DEFAULT 1,
                 createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expiresAt DATETIME NOT NULL,
                 FOREIGN KEY(ownerId) REFERENCES users(id) ON DELETE CASCADE,
@@ -221,6 +222,14 @@ async function initializeDatabase() {
             if (!hasIsUnique) {
                 console.log(chalk.cyan('[DATABASE] Migrating: Adding "isUnique" column to clicks...'));
                 await db.exec(`ALTER TABLE clicks ADD COLUMN isUnique INTEGER DEFAULT 0`);
+            }
+
+            // FIX 7: Add 'isActive' column to 'links' table for pause/resume
+            const linksInfoActive = await db.all("PRAGMA table_info(links)");
+            const linksHasIsActive = linksInfoActive.some(col => col.name === 'isActive');
+            if (!linksHasIsActive) {
+                console.log(chalk.cyan('[DATABASE] Migrating: Adding "isActive" column to links...'));
+                await db.exec(`ALTER TABLE links ADD COLUMN isActive INTEGER DEFAULT 1`);
             }
 
         } catch (migError) {
