@@ -14,7 +14,7 @@ async function ensureTableExists() {
     const db = await getDb();
     
     await db.exec(`
-        CREATE TABLE IF NOT EXISTS html_templates (
+        CREATE TABLE IF NOT EXISTS link_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ownerId INTEGER NOT NULL,
             name TEXT NOT NULL,
@@ -27,7 +27,7 @@ async function ensureTableExists() {
             UNIQUE(ownerId, name)
         );
         
-        CREATE INDEX IF NOT EXISTS idx_templates_owner ON html_templates(ownerId);
+        CREATE INDEX IF NOT EXISTS idx_templates_owner ON link_templates(ownerId);
     `);
 }
 
@@ -72,7 +72,7 @@ const templateStore = {
         // If setting as default, unset other defaults first
         if (isDefault) {
             await db.run(
-                'UPDATE html_templates SET isDefault = 0 WHERE ownerId = ?',
+                'UPDATE link_templates SET isDefault = 0 WHERE ownerId = ?',
                 [ownerId]
             );
         }
@@ -80,13 +80,13 @@ const templateStore = {
         try {
             // Try to update existing
             const existing = await db.get(
-                'SELECT id FROM html_templates WHERE ownerId = ? AND name = ? ',
+                'SELECT id FROM link_templates WHERE ownerId = ? AND name = ? ',
                 [ownerId, name]
             );
 
             if (existing) {
                 await db.run(
-                    `UPDATE html_templates 
+                    `UPDATE link_templates 
                      SET htmlContent = ?, description = ?, isDefault = ?, updatedAt = CURRENT_TIMESTAMP 
                      WHERE id = ?`,
                     [htmlContent, description, isDefault ?  1 : 0, existing.id]
@@ -104,7 +104,7 @@ const templateStore = {
                 };
             } else {
                 const result = await db. run(
-                    `INSERT INTO html_templates (ownerId, name, description, htmlContent, isDefault) 
+                    `INSERT INTO link_templates (ownerId, name, description, htmlContent, isDefault) 
                      VALUES (?, ?, ?, ?, ?)`,
                     [ownerId, name, description, htmlContent, isDefault ?  1 : 0]
                 );
@@ -139,7 +139,7 @@ const templateStore = {
         
         const db = await getDb();
         return db.get(
-            'SELECT * FROM html_templates WHERE ownerId = ?  AND name = ?',
+            'SELECT * FROM link_templates WHERE ownerId = ?  AND name = ?',
             [ownerId, name]
         );
     },
@@ -154,7 +154,7 @@ const templateStore = {
         
         const db = await getDb();
         return db.get(
-            'SELECT * FROM html_templates WHERE ownerId = ?  AND isDefault = 1',
+            'SELECT * FROM link_templates WHERE ownerId = ?  AND isDefault = 1',
             [ownerId]
         );
     },
@@ -171,7 +171,7 @@ const templateStore = {
         return db.all(
             `SELECT id, name, description, isDefault, createdAt, updatedAt, 
                     LENGTH(htmlContent) as contentSize 
-             FROM html_templates 
+             FROM link_templates 
              WHERE ownerId = ?  
              ORDER BY isDefault DESC, updatedAt DESC`,
             [ownerId]
@@ -189,7 +189,7 @@ const templateStore = {
         
         const db = await getDb();
         const result = await db. run(
-            'DELETE FROM html_templates WHERE ownerId = ? AND name = ? ',
+            'DELETE FROM link_templates WHERE ownerId = ? AND name = ? ',
             [ownerId, name]
         );
 
@@ -214,17 +214,17 @@ const templateStore = {
 
         // Verify template exists
         const template = await db.get(
-            'SELECT id FROM html_templates WHERE ownerId = ? AND name = ? ',
+            'SELECT id FROM link_templates WHERE ownerId = ? AND name = ? ',
             [ownerId, name]
         );
 
         if (!template) return false;
 
         // Unset all defaults
-        await db.run('UPDATE html_templates SET isDefault = 0 WHERE ownerId = ?', [ownerId]);
+        await db.run('UPDATE link_templates SET isDefault = 0 WHERE ownerId = ?', [ownerId]);
 
         // Set new default
-        await db.run('UPDATE html_templates SET isDefault = 1 WHERE id = ?', [template.id]);
+        await db.run('UPDATE link_templates SET isDefault = 1 WHERE id = ?', [template.id]);
 
         console.log(chalk.yellow(`[TEMPLATE] Set default: ${name}`));
         return true;

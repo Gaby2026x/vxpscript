@@ -57,6 +57,7 @@ function parseCookies(req) {
         const key = part.slice(0, index).trim();
         const value = part.slice(index + 1).trim();
         acc[key] = decodeURIComponent(value);
+        return acc;
     }, {});
 }
 
